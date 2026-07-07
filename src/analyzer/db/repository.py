@@ -24,16 +24,50 @@ from analyzer.logging_setup import get_logger
 log = get_logger(__name__)
 
 _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+_MIGRATIONS_PATH = Path(__file__).with_name("migrations.sql")
+
+
+def _split_statements(sql: str) -> list[str]:
+    """Split a SQL file into individual statements, ignoring comments/blanks."""
+    out: list[str] = []
+    for raw in sql.split(";"):
+        # Strip full-line comments so a stray comment doesn't become a statement.
+        lines = [ln for ln in raw.splitlines() if not ln.strip().startswith("--")]
+        stmt = "\n".join(lines).strip()
+        if stmt:
+            out.append(stmt)
+    return out
+
+
+def apply_migrations(con: duckdb.DuckDBPyConnection) -> int:
+    """Run migrations.sql statement-by-statement (idempotent ALTERs etc.).
+
+    Each statement is isolated: a failure is logged and skipped rather than
+    aborting the whole open, so one bad migration can't lock you out of the DB.
+    Returns the count of statements that ran without error.
+    """
+    if not _MIGRATIONS_PATH.exists():
+        return 0
+    ok = 0
+    for stmt in _split_statements(_MIGRATIONS_PATH.read_text(encoding="utf-8")):
+        try:
+            con.execute(stmt)
+            ok += 1
+        except Exception as exc:  # noqa: BLE001 - never block DB open on a migration
+            log.warning("migration_failed", stmt=stmt[:120], error=str(exc))
+    return ok
 
 
 def connect(db_path: str | Path, read_only: bool = False) -> duckdb.DuckDBPyConnection:
-    """Open (creating parent dirs) a DuckDB connection and apply the schema."""
+    """Open (creating parent dirs) a DuckDB connection, apply the schema, then
+    run migrations (additive column changes on existing tables)."""
     db_path = Path(db_path)
     if str(db_path) != ":memory:":
         db_path.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(db_path), read_only=read_only)
     if not read_only:
         con.execute(_SCHEMA_PATH.read_text(encoding="utf-8"))
+        apply_migrations(con)
     return con
 
 

@@ -183,5 +183,26 @@ A backup you have never restored is a hope, not a backup.
 
 - The DB grows ~1 MB/day (~0.4 GB/yr) — irrelevant vs 200 GB.
 - `data/cache/` and `logs/` self-prune (wrappers) or stay static.
-- To update code: `git pull` (or re-scp) + `.venv/bin/pip install -e .` — the
-  DB schema applies additively on next open.
+
+### Updating code (safe — never clears the DB)
+
+```bash
+cd /opt/stock-analyzer
+git pull
+.venv/bin/pip install -e .        # only needed if dependencies changed
+sudo systemctl restart stock-analyzer-bot stock-analyzer-dash   # if running
+```
+The database is NOT in git, so `git pull` cannot touch it. On the next DB open:
+1. `schema.sql` (CREATE TABLE IF NOT EXISTS) adds any brand-new tables.
+2. `migrations.sql` runs idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+   statements — so new columns on EXISTING tables are added automatically,
+   without touching your data. Migrations are logged; a failed one is skipped,
+   never blocking startup.
+
+**Schema-change policy for contributors:** new table → add it to `schema.sql`;
+new column on an existing table → add an idempotent `ALTER` to
+`db/migrations.sql`. Never put a destructive statement (DROP/rename/UPDATE) in
+either — they run unattended on the production DB.
+
+Belt-and-suspenders: the weekly backup (§7c) runs before any manual update
+window you choose, so if a migration ever misbehaves you can restore.

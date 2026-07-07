@@ -1,0 +1,24 @@
+-- ==========================================================================
+-- Schema migrations — runs AFTER schema.sql on every DB open (repository.connect).
+--
+-- schema.sql (CREATE TABLE IF NOT EXISTS) handles NEW TABLES automatically, but
+-- CANNOT add a column to a table that already exists on an old database. Put
+-- those changes HERE, one idempotent statement per line.
+--
+-- RULES:
+--   * Every statement MUST be safe to run repeatedly (the whole file runs on
+--     EVERY connection). Use ADD COLUMN IF NOT EXISTS, CREATE INDEX IF NOT
+--     EXISTS, etc. Never a bare ALTER that fails on the second run.
+--   * NEVER DROP or rename a column that holds live data, and never write a
+--     destructive UPDATE here — this file runs unattended on the production DB.
+--   * Adding a NEW TABLE? Put it in schema.sql, not here.
+--   * Order matters only if one statement depends on another; keep it linear.
+--
+-- HISTORY (newest at the bottom):
+--   2026-07-08  Migration mechanism introduced. No column changes yet — the
+--               placeholder below documents the pattern and is a harmless no-op.
+-- ==========================================================================
+
+-- Pattern example (safe no-op: the column already exists in schema.sql):
+--   ALTER TABLE positions ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS notes TEXT;
