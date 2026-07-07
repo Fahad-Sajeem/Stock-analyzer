@@ -48,27 +48,47 @@ def send_telegram(text: str, cfg: Config | None = None) -> bool:
 
 
 def telegram_digest(report_md: str) -> str:
-    """Compact digest from the daily report: title, regime, position actions
-    (the CG Power-style 'EXIT' lines must reach the phone), and signal rows."""
+    """Compact digest from the daily report. Section-aware so it reliably carries
+    the parts that matter to the phone: title, regime, YOUR holdings + total P&L,
+    open-position actions (the CG Power-style 'EXIT' lines), and new-signal rows."""
     lines = report_md.splitlines()
     keep: list[str] = []
-    in_actions = False
+    section = None  # 'holdings' | 'actions' | 'signals' | None
     for ln in lines:
         if ln.startswith("# ") or ln.startswith("**Regime"):
             keep.append(ln.replace("# ", ""))
-        elif ln.startswith("## Open-position actions"):
-            in_actions = True
-            keep.append("Position actions:")
-        elif in_actions:
-            if ln.startswith("## "):
-                in_actions = False
-            elif ln.startswith("- "):
+            continue
+        if ln.startswith("## Your holdings"):
+            section = "holdings"
+            keep.append("*Holdings:*")
+            continue
+        if ln.startswith("## Open-position actions"):
+            section = "actions"
+            keep.append("*Actions:*")
+            continue
+        if ln.startswith("## New signals"):
+            section = "signals"
+            continue
+        if ln.startswith("## "):  # any other section ends capture
+            section = None
+            continue
+
+        if section == "holdings":
+            if ln.startswith("| ") and "Symbol" not in ln and "---" not in ln:
+                keep.append(ln)              # a holding row
+            elif ln.startswith("**Total"):
+                keep.append(ln)              # the total P&L line
+            elif ln.startswith("_No open holdings"):
+                keep.append("(no open holdings)")
+        elif section == "actions":
+            if ln.startswith("- "):
                 keep.append(ln)
             elif ln.startswith("_None"):
-                keep.append("(no actions)")
-                in_actions = False
-        elif ln.startswith("| ") and len(keep) < 30:
-            keep.append(ln)
-        elif ln.startswith("_No new signals"):
-            keep.append(ln.strip("_"))
-    return "\n".join(keep[:45])
+                keep.append("(no actions today)")
+        elif section == "signals":
+            if ln.startswith("- ") or (ln.startswith("| ") and "Symbol" not in ln
+                                       and "---" not in ln):
+                keep.append(ln)
+            elif ln.startswith("_No new signals"):
+                keep.append("(no new signals)")
+    return "\n".join(keep[:50])

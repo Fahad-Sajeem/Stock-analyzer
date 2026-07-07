@@ -1,8 +1,9 @@
 """Daily markdown report (PLAN Section 14).
 
-Sections: regime banner, new signals (with UNVALIDATED status), open-position
-actions, live observational performance (signal_outcomes), momentum+quality
-watchlist. Written to reports/daily/YYYY-MM-DD.md; the same text feeds Telegram.
+Sections: regime banner, YOUR holdings (end-of-day P&L per stock), open-position
+actions, new signals (with UNVALIDATED status), live observational performance
+(signal_outcomes), momentum+quality watchlist. Written to reports/daily/
+YYYY-MM-DD.md; the same text feeds Telegram.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import pandas as pd
 
 from analyzer.config import Config, get_config
 from analyzer.logging_setup import get_logger
+from analyzer.risk.positions import list_positions
 from analyzer.risk.tracker import open_position_actions, outcome_stats
 
 log = get_logger(__name__)
@@ -66,6 +68,42 @@ def _signals_section(repo, as_of: date) -> str:
         reasons = s["reasons"] if isinstance(s["reasons"], list) else []
         if len(reasons):
             lines.append(f"- **{s['symbol']}**: " + "; ".join(str(r) for r in reasons[:3]))
+    return "\n".join(lines)
+
+
+def _holdings_section(repo) -> str:
+    """End-of-day summary of every open holding: entry, last close, P&L, and
+    cushion above the stop. This is the 'how are my stocks doing today' view."""
+    df = list_positions(repo)
+    if df.empty:
+        return "_No open holdings. Log buys with `analyzer position add` or the Telegram bot._"
+
+    lines = [
+        "| Symbol | Qty | Entry | Last | P&L | P&L% | Stop | Cushion |",
+        "|--------|-----|-------|------|-----|------|------|---------|",
+    ]
+    total_pnl = 0.0
+    total_cost = 0.0
+    for _, r in df.iterrows():
+        last = r.get("last_close")
+        pnl = r.get("pnl")
+        pnl_pct = r.get("pnl_pct")
+        # Cushion = % the price sits above the stop (negative => already below stop!).
+        cushion = ""
+        if last is not None and not pd.isna(last) and r["current_sl"]:
+            cushion = f"{(last - r['current_sl']) / last * 100:+.1f}%"
+        last_s = f"{last:.1f}" if last is not None and not pd.isna(last) else "—"
+        pnl_s = f"{pnl:+.0f}" if pnl is not None and not pd.isna(pnl) else "—"
+        pnlp_s = f"{pnl_pct:+.1f}%" if pnl_pct is not None and not pd.isna(pnl_pct) else "—"
+        lines.append(
+            f"| {r['symbol']} | {r['qty']} | {r['entry_price']:.1f} | {last_s} "
+            f"| {pnl_s} | {pnlp_s} | {r['current_sl']:.1f} | {cushion} |"
+        )
+        if pnl is not None and not pd.isna(pnl):
+            total_pnl += float(pnl)
+            total_cost += float(r["entry_price"]) * float(r["qty"])
+    total_pct = f" ({total_pnl / total_cost * 100:+.1f}%)" if total_cost else ""
+    lines.append(f"\n**Total open P&L: {total_pnl:+,.0f}{total_pct}**")
     return "\n".join(lines)
 
 
@@ -124,11 +162,14 @@ def build_daily_report(repo, as_of: date, cfg: Config | None = None) -> str:
         "",
         _regime_banner(repo, as_of),
         "",
-        "## New signals (observational — do not trade)",
-        _signals_section(repo, as_of),
+        "## Your holdings (end of day)",
+        _holdings_section(repo),
         "",
         "## Open-position actions",
         actions_md,
+        "",
+        "## New signals (observational — do not trade)",
+        _signals_section(repo, as_of),
         "",
         "## Live observational performance (tracked outcomes)",
         _performance_section(repo),

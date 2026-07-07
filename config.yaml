@@ -228,8 +228,7 @@ news:
 
 # --- Notifications ----------------------------------------------------------
 notify:
-  telegram_enabled: false           # set true after creating a bot; credentials via
-                                    # env: ANALYZER_TG_BOT_TOKEN, ANALYZER_TG_CHAT_ID
+  telegram_enabled: true             # credentials via env: ANALYZER_TG_BOT_TOKEN, ANALYZER_TG_CHAT_ID
   email_enabled: false
   watch_drop_pct: 3.0               # intraday alert when a holding falls this % vs prev close
 

@@ -144,6 +144,31 @@ def test_close_position_still_full_exit():
     repo.close()
 
 
+def test_holdings_section_summarizes_open_positions():
+    from analyzer.notify.report import _holdings_section
+
+    repo = _repo()
+    # Seed a price so last_close / P&L / cushion compute.
+    repo.upsert_df("prices_adj", pd.DataFrame([{
+        "symbol": "CGPOWER", "date": date(2026, 7, 6), "open": 890.0, "high": 895.0,
+        "low": 888.0, "close": 892.0, "volume": 1000, "adj_factor": 1.0,
+    }]))
+    add_position(repo, "CGPOWER", 100, 900.0, 880.0)
+    section = _holdings_section(repo)
+    assert "CGPOWER" in section
+    assert "892" in section              # last close shown
+    assert "Total open P&L" in section
+    repo.close()
+
+
+def test_holdings_section_empty():
+    from analyzer.notify.report import _holdings_section
+
+    repo = _repo()
+    assert "No open holdings" in _holdings_section(repo)
+    repo.close()
+
+
 def test_market_hours_logic():
     cal = TradingCalendar(holidays={date(2026, 7, 6)})  # pretend Monday is a holiday
     # Tuesday 10:00 -> in hours.
@@ -156,21 +181,50 @@ def test_market_hours_logic():
     assert not in_market_hours(datetime(2026, 7, 6, 10, 0), cal)
 
 
-def test_digest_includes_position_actions():
+def test_digest_includes_holdings_and_actions():
     report = "\n".join([
         "# Daily Report — 2026-07-06",
         "",
         "**Regime: BEAR** | Nifty 24,000",
         "",
-        "## New signals (observational — do not trade)",
-        "_No new signals today._",
+        "## Your holdings (end of day)",
+        "| Symbol | Qty | Entry | Last | P&L | P&L% | Stop | Cushion |",
+        "|--------|-----|-------|------|-----|------|------|---------|",
+        "| CGPOWER | 100 | 900.0 | 892.6 | -740 | -0.8% | 880.0 | +1.4% |",
+        "",
+        "**Total open P&L: -740 (-0.8%)**",
         "",
         "## Open-position actions",
-        "- CGPOWER: CLOSE 878.0 <= stop 880.0 — EXIT",
+        "- TATAPOWER: T1 hit — book 50%",
+        "",
+        "## New signals (observational — do not trade)",
+        "_No new signals today._",
         "",
         "## Live observational performance (tracked outcomes)",
         "_No terminal outcomes tracked yet._",
     ])
     digest = telegram_digest(report)
-    assert "CGPOWER" in digest and "EXIT" in digest
+    # Holdings row + total P&L reach the phone.
+    assert "CGPOWER" in digest and "892.6" in digest
+    assert "Total open P&L: -740" in digest
+    # Actions still carried.
+    assert "TATAPOWER" in digest
     assert "Regime: BEAR" in digest
+    # The performance table (not a chosen section) must NOT leak in.
+    assert "terminal outcomes" not in digest
+
+
+def test_digest_no_holdings():
+    report = "\n".join([
+        "# Daily Report — 2026-07-06",
+        "**Regime: BULL** | Nifty 25,000",
+        "## Your holdings (end of day)",
+        "_No open holdings. Log buys with the bot._",
+        "## Open-position actions",
+        "_None._",
+        "## New signals (observational — do not trade)",
+        "_No new signals today._",
+    ])
+    digest = telegram_digest(report)
+    assert "no open holdings" in digest.lower()
+    assert "no actions today" in digest.lower()

@@ -30,14 +30,35 @@ from analyzer.risk.positions import add_position, list_positions, sell_position,
 
 log = get_logger(__name__)
 
+# Registered with Telegram's native "/" command menu (set_bot_commands) so they
+# show up in the client's autocomplete + menu button — the discoverable path,
+# not just "you have to already know to type help". Telegram command names must
+# be lowercase \w{1,32}; keep in sync with parse_command's verb handling below.
+_COMMAND_MENU = [
+    ("help", "Show all commands and how to use them"),
+    ("list", "Show your holdings with live P&L"),
+    ("buy", "Log a buy — e.g. /buy CGPOWER 100 902"),
+    ("sell", "Sell all or part — e.g. /sell CGPOWER 40 950"),
+    ("sl", "Tighten a stop — e.g. /sl CGPOWER 910"),
+]
+
 _HELP = (
-    "Commands:\n"
-    "• buy SYMBOL QTY PRICE [sl STOP]  — log a buy (stop optional if it's a signal)\n"
-    "• sell SYMBOL [PRICE]             — sell the whole position\n"
-    "• sell SYMBOL QTY PRICE           — sell PART (rest stays tracked)\n"
-    "• sl SYMBOL PRICE                 — tighten a stop\n"
-    "• list                           — holdings with P&L\n"
-    "• help"
+    "*Stock Analyzer bot — commands*\n\n"
+    "*/buy* SYMBOL QTY PRICE [sl STOP]\n"
+    "  Log a buy. If a system signal exists for the symbol, the stop is taken "
+    "from it automatically — leave [sl STOP] out.\n"
+    "  e.g. `/buy CGPOWER 100 902`\n"
+    "  Discretionary buy (no signal) — stop is required:\n"
+    "  e.g. `/buy CGPOWER 100 900 sl 880`\n\n"
+    "*/sell* SYMBOL [PRICE]  — sell the WHOLE position\n"
+    "  e.g. `/sell CGPOWER 950`  or just `/sell CGPOWER` (market)\n"
+    "*/sell* SYMBOL QTY PRICE  — sell PART, rest stays tracked\n"
+    "  e.g. `/sell CGPOWER 40 950`  (books 40, keeps watching the remainder)\n\n"
+    "*/sl* SYMBOL PRICE  — tighten a stop (never widens)\n"
+    "  e.g. `/sl CGPOWER 910`\n\n"
+    "*/list*  — holdings with live entry/stop/P&L\n\n"
+    "*/help*  — this message\n\n"
+    "Only messages from your registered chat are ever acted on."
 )
 
 
@@ -149,6 +170,25 @@ def handle_command(repo, text: str) -> str:
     return ""
 
 
+def set_bot_commands(token: str) -> bool:
+    """Register the "/" command menu with Telegram (setMyCommands) so commands
+    are discoverable in the client UI, not just something you have to know to
+    type. Safe to call every time the bot starts — Telegram just overwrites."""
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{token}/setMyCommands",
+            json={"commands": [{"command": c, "description": d} for c, d in _COMMAND_MENU]},
+            timeout=20,
+        )
+        ok = resp.status_code == 200
+        if not ok:
+            log.warning("bot_setmycommands_failed", status=resp.status_code, body=resp.text[:200])
+        return ok
+    except requests.RequestException as exc:
+        log.warning("bot_setmycommands_error", error=str(exc))
+        return False
+
+
 # --- polling loop ---------------------------------------------------------
 
 def _offset_path(cfg: Config) -> Path:
@@ -167,6 +207,7 @@ def run_bot(repo, cfg: Config | None = None, poll_timeout: int = 30,
     base = f"https://api.telegram.org/bot{token}"
     off_file = _offset_path(cfg)
     offset = int(off_file.read_text()) if off_file.exists() else 0
+    set_bot_commands(token)  # register the "/" menu; harmless if it fails
 
     def reply(text: str) -> None:
         if not text:

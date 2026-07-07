@@ -131,14 +131,19 @@ Until then, alerts are still evaluated and written to `logs/watch_*.log` and
 long-running) and message your bot directly:
 
 ```
-buy CGPOWER 100 902           → logs a buy; stop taken from the signal if one exists
-buy CGPOWER 100 902 sl 880    → discretionary buy with an explicit stop
-sell CGPOWER 950              → sells the whole position at 950
-sell CGPOWER 40 950          → PARTIAL: sells 40, keeps 60 tracked (also = "book half at T1")
-sl CGPOWER 910               → tightens the stop (never widens)
-list                         → holdings with live P&L
-help
+/buy CGPOWER 100 902           → logs a buy; stop taken from the signal if one exists
+/buy CGPOWER 100 902 sl 880    → discretionary buy with an explicit stop
+/sell CGPOWER 950              → sells the whole position at 950
+/sell CGPOWER 40 950           → PARTIAL: sells 40, keeps 60 tracked (also = "book half at T1")
+/sl CGPOWER 910                → tightens the stop (never widens)
+/list                          → holdings with live P&L
+/help                          → shows this list, with worked examples, inside Telegram
 ```
+
+The leading `/` is optional (`buy CGPOWER 100 902` works too) but commands are
+also registered as Telegram's native "/" menu — type `/` in the chat to see
+them with descriptions autocomplete, same as any other bot. `/help` (or `help`,
+`?`) replies with full syntax + examples any time you forget the format.
 
 Security: the bot only obeys messages from your `ANALYZER_TG_CHAT_ID` — anyone
 else who finds the bot is ignored. Keep the daily/watch schedulers and the bot

@@ -1,12 +1,18 @@
 """Tests for the two-way Telegram bot: command parsing + dispatch (no network)."""
 
 from datetime import date, timedelta
+from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest
 
 from analyzer.db.repository import Repository
-from analyzer.notify.telegram_bot import handle_command, parse_command
+from analyzer.notify.telegram_bot import (
+    _COMMAND_MENU,
+    handle_command,
+    parse_command,
+    set_bot_commands,
+)
 from analyzer.risk.positions import list_positions
 
 
@@ -28,6 +34,9 @@ from analyzer.risk.positions import list_positions
     ("sl CGPOWER 910", {"action": "set_sl", "symbol": "CGPOWER", "sl": 910.0}),
     ("list", {"action": "list"}),
     ("/help", {"action": "help"}),
+    ("/list", {"action": "list"}),          # slash-prefixed native menu commands
+    ("/buy CGPOWER 100 902", {"action": "buy", "symbol": "CGPOWER", "qty": 100,
+                              "price": 902.0, "sl": None}),
 ])
 def test_parse_command(text, expected):
     assert parse_command(text) == expected
@@ -54,6 +63,50 @@ def _repo_with_signal(symbol="CGPOWER"):
         "t1": 945.0, "t2": 985.0, "rr": 3.0, "suggested_risk_pct": 1.0,
     }]))
     return repo
+
+
+def test_handle_help_lists_all_commands():
+    repo = Repository.open(":memory:")
+    reply = handle_command(repo, "help")
+    # Every real command must be documented in the help text.
+    for word in ("/buy", "/sell", "/sl", "/list", "/help"):
+        assert word in reply
+    assert "CGPOWER" in reply  # worked examples, not just bare syntax
+    repo.close()
+
+
+def test_handle_help_via_slash_and_question_mark():
+    repo = Repository.open(":memory:")
+    assert handle_command(repo, "/help") == handle_command(repo, "help")
+    assert handle_command(repo, "?") == handle_command(repo, "help")
+    repo.close()
+
+
+def test_command_menu_matches_parser_verbs():
+    """Every command registered in Telegram's native menu must actually be
+    handled by the parser, or the menu would be lying to the user."""
+    menu_commands = {c for c, _desc in _COMMAND_MENU}
+    for cmd in menu_commands:
+        result = parse_command(f"/{cmd} X 1 1")  # generic args; just check it's not 'unknown'
+        assert result["action"] != "unknown", f"{cmd} is in the menu but unrecognized"
+
+
+def test_set_bot_commands_calls_telegram_api():
+    with patch("analyzer.notify.telegram_bot.requests.post") as mock_post:
+        mock_post.return_value = Mock(status_code=200)
+        ok = set_bot_commands("fake-token")
+    assert ok
+    call = mock_post.call_args
+    assert "setMyCommands" in call.args[0]
+    sent_commands = {c["command"] for c in call.kwargs["json"]["commands"]}
+    assert sent_commands == {c for c, _ in _COMMAND_MENU}
+
+
+def test_set_bot_commands_handles_failure_gracefully():
+    with patch("analyzer.notify.telegram_bot.requests.post") as mock_post:
+        mock_post.return_value = Mock(status_code=401, text="unauthorized")
+        ok = set_bot_commands("bad-token")
+    assert not ok  # reports failure but does not raise
 
 
 def test_handle_buy_from_signal():
