@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Project data (do not commit market data / DB / outputs)
+data/*.duckdb
+data/*.duckdb.wal
+data/cache/
+data/.tg_offset
+backups/
+charts/
+reports/
+*.log
+
+# Secrets
+.env
+secrets.yaml
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

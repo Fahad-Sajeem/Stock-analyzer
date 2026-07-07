@@ -1,0 +1,239 @@
+# ==========================================================================
+# Stock Analyzer — central configuration.
+# EVERY threshold in the system lives here. Never hardcode a number in code.
+# All values are STARTING points; Phase 5 backtest is the final authority.
+# See PLAN.md for the rationale behind each number.
+# ==========================================================================
+
+# --- Paths & storage -------------------------------------------------------
+paths:
+  db: "data/analyzer.duckdb"        # DuckDB file
+  charts_dir: "charts"
+  reports_dir: "reports"
+  cache_dir: "data/cache"           # raw downloaded files (bhavcopy, etc.)
+
+# --- Timezone / market ------------------------------------------------------
+market:
+  timezone: "Asia/Kolkata"
+  exchanges: ["NSE", "BSE"]
+  benchmark_broad: "NIFTY 500"
+  benchmark_regime: "NIFTY 50"
+
+# --- Data ingestion ---------------------------------------------------------
+ingestion:
+  nse_base_url: "https://www.nseindia.com"
+  nse_archives_url: "https://nsearchives.nseindia.com"
+  request_timeout_sec: 30
+  rate_limit_sec: 1.5               # min gap between NSE requests
+  max_retries: 4
+  backoff_base_sec: 2.0             # exponential backoff base
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+  backfill_years: 10
+  yfinance_suffix_nse: ".NS"
+  yfinance_suffix_bse: ".BO"
+  reconcile_divergence_pct: 0.5     # bhavcopy vs yfinance close alert threshold
+
+# --- Layer 0: tradability filter (hard gates) ------------------------------
+tradability:
+  min_median_traded_value_cr: 3.0   # 20-day median daily traded value, crore INR
+  min_price: 20.0
+  min_listing_days: 200
+  min_mcap_cr: 500.0
+  excluded_bands_pct: [5]           # exclude stocks in a 5% circuit band
+  exclude_surveillance: ["GSM", "ESM"]   # plus ASM stage >= asm_max_stage
+  asm_max_stage: 1                  # ASM stage > this => excluded (stage 1 => warn only)
+
+# --- Data validation --------------------------------------------------------
+validation:
+  max_daily_move_pct: 30.0          # flag > this unless circuit/news explains it
+  min_volume: 0                     # zero-volume days are flagged, not dropped
+
+# --- Fundamentals (Layer 1) — see PLAN.md sec 6 ----------------------------
+fundamentals:
+  refresh_weekday: 6                # Sunday (Mon=0)
+  hard_filters:
+    max_pledge_pct: 25.0
+    max_debt_equity: 2.0            # non-financials
+    min_interest_coverage: 2.0      # non-financials
+    max_loss_years_in_3: 1          # net loss in >1 of last 3 FYs => reject
+    max_promoter_drop_pp: 5.0       # over last 2 quarters
+    max_contingent_liab_to_networth: 0.5
+  quality_weights:                  # must sum to 100
+    profitability: 25
+    growth: 25
+    earnings_quality: 15
+    balance_sheet: 15
+    ownership: 10
+    valuation_sanity: 10
+  # Sub-thresholds used inside each quality-score component (starting values;
+  # Phase 5 backtest is the final authority). See PLAN.md sec 6.2.
+  quality_thresholds:
+    roce_full: 20.0                 # ROCE% for full profitability points
+    roce_floor: 12.0                # ROCE% below which profitability -> 0
+    roe_full: 18.0
+    roe_floor: 10.0
+    roa_full: 1.2                   # banks: ROA% for full points
+    roa_floor: 0.5
+    bank_roe_full: 16.0
+    bank_roe_floor: 10.0
+    growth_full_pct: 15.0           # sales CAGR / EPS growth for full points
+    accel_bonus_frac: 0.10          # recent-quarter acceleration bonus (of component)
+    cfo_ebitda_full: 0.70
+    fcf_years_full: 2               # positive FCF in >= this many of last 3 yrs
+    de_full: 0.5                    # D/E for full balance-sheet points
+    de_floor: 2.0                   # D/E at/above which -> 0
+    debt_decline_bonus_frac: 0.10
+    promoter_full: 45.0             # promoter holding% for full ownership points
+    promoter_floor: 30.0
+    fii_dii_bonus_frac: 0.10
+    pe_sector_mult_max: 3.0         # PE > this x sector median -> valuation penalty
+    ev_ebitda_max: 40.0
+  approve_min_score: 50
+  no_entry_days_before_results: 3
+
+# --- Technicals (Layer 2) — see PLAN.md sec 7 ------------------------------
+technicals:
+  ema_fast: 20
+  ema_mid: 50
+  sma_slow: 200
+  rsi_period: 14
+  atr_period: 14
+  adx_period: 14
+  macd: [12, 26, 9]
+  bb: [20, 2]
+  supertrend: [10, 3]
+  vol_avg_period: 20
+  rs_lookback_days: 63
+  roc_periods: [20, 60, 120]
+  base_min_days: 15
+  base_max_range_pct: 12.0
+  weekly_ema: 10
+  weekly_sma: 40
+
+# --- Market regime ----------------------------------------------------------
+regime:
+  breadth_bull_pct: 55.0            # % of universe above 200DMA for BULL
+  breadth_bear_pct: 35.0
+  vix_high: 22.0                    # halve sizing above this
+  # yfinance tickers for benchmarks (fallbacks tried in order).
+  index_tickers:
+    NIFTY50: ["^NSEI"]
+    NIFTY500: ["^CRSLDX", "^NSEI"]
+    INDIAVIX: ["^INDIAVIX"]
+
+# --- Setups (Layer 2 triggers) ---------------------------------------------
+setups:
+  # Scan params below were tuned on the IN-SAMPLE window only (analyzer tune),
+  # top-400 liquid names. allowed_regimes reflects where each setup's edge lived.
+  breakout:
+    high_lookback: 60
+    vol_mult_min: 2.0                 # tuned (was 1.5)
+    vol_mult_strong: 2.0
+    rs_pctile_min: 70
+    max_extension_pct: 4.0
+    allowed_regimes: ["BULL"]         # tuned: breakout edge is BULL-only
+  pullback:
+    rs_pctile_min: 70                 # tuned (was 60)
+    max_pullback_fib: 0.382
+    rsi_zone: [40, 55]
+    adx_min: 25                       # tuned (was 20)
+    allowed_regimes: ["NEUTRAL"]      # tuned: pullback edge is NEUTRAL-only
+  mean_reversion:
+    rsi_max: 35
+    quality_min: 65
+    range_min_days: 63
+  squeeze:
+    bb_width_pctile_max: 15
+    vol_mult_min: 2.0                 # tuned (was 1.5)
+  earnings_momentum:
+    within_sessions: 2
+    gap_min_pct: 2.0
+    close_min_pct: 4.0
+    vol_mult_min: 2.5
+    max_results_day_range_pct: 8.0
+    eps_yoy_min: 25.0
+    sales_yoy_min: 10.0
+    quality_min: 60
+    rs_pctile_min: 50
+    require_results_flag: true       # dormant until results-calendar ingestion (task 2.2)
+
+# --- Signal generation (Layer 3) — see PLAN.md sec 8 -----------------------
+signals:
+  atr_stop_mult: 2.0
+  stop_swing_buffer_atr: 0.25
+  max_stop_pct: 8.0                 # reject if stop farther than this
+  min_stop_pct: 1.5                 # widen if tighter than this
+  t1_r_mult: 1.5
+  t2_r_mult: 3.0
+  min_rr_to_t2: 2.0
+  entry_valid_sessions: 5
+  time_stop_sessions: 25            # tuned in-sample (was 15); all setups agreed
+  composite_weights:                # must sum to 1.0
+    setup_strength: 0.40
+    momentum_rs: 0.25
+    quality: 0.25
+    volume_delivery: 0.10
+  grade_a_min: 80
+  grade_b_min: 65
+  grade_c_min: 50
+  max_signals_per_day: 15
+  max_signals_per_sector: 3
+  news_max_adjust_points: 5
+  # Setups that PASSED backtest acceptance gates (PLAN 10.3.4) and may be trusted.
+  # Empty = none validated. RESULT (full 2,700-symbol universe, 10yr, params tuned
+  # on in-sample only): every setup FAILS out-of-sample. In-sample tuning reached
+  # PF 1.15-1.40, but OOS all collapse to PF 0.80-0.98 (net-losing after costs) —
+  # a clean demonstration of overfitting. Conclusion: these classic technical
+  # swing setups have no durable edge after realistic Indian costs. Signals from
+  # unvalidated setups carry an UNVALIDATED warning. See reports/backtest/.
+  # DO NOT trade these signals with real money.
+  validated_setups: []
+
+# --- Risk management (Layer 4) — see PLAN.md sec 9 -------------------------
+risk:
+  capital: 1000000                  # total trading capital (INR)
+  risk_per_trade_pct: 1.0
+  risk_per_trade_pct_grade_b: 0.5
+  max_position_pct: 15.0            # of capital in one stock
+  max_adv_participation_pct: 5.0    # of stock 20d avg traded value
+  max_open_positions: 8
+  max_positions_per_sector: 3
+  max_total_open_risk_pct: 5.0
+  correlation_threshold: 0.7
+  max_correlated_cluster_risk_pct: 2.0
+  gap_stress_pct: [5, 10]
+  gap_stress_max_loss_pct: 4.0
+
+# --- Backtest (Layer 5) — see PLAN.md sec 10 -------------------------------
+backtest:
+  in_sample: ["2015-01-01", "2021-12-31"]
+  out_sample: ["2022-01-01", "2026-06-30"]
+  slippage_pct_per_side: 0.15
+  stt_pct_per_side: 0.1
+  other_costs_pct_per_side: 0.05
+  min_trades_significance: 300
+  gate_profit_factor: 1.5
+  gate_max_dd_pct: 25.0
+  gate_positive_years_pct: 70.0
+
+# --- News (Layer 6) — see PLAN.md sec 17 -----------------------------------
+news:
+  enabled: true
+  use_llm: false                    # rules+proxies only until explicitly enabled
+  llm_model: "gpt-4o-mini"
+  llm_min_confidence: 0.6
+  macro_risk_off_score: -6
+  sector_block_score: -5
+  sector_bonus_score: 5
+
+# --- Notifications ----------------------------------------------------------
+notify:
+  telegram_enabled: false           # set true after creating a bot; credentials via
+                                    # env: ANALYZER_TG_BOT_TOKEN, ANALYZER_TG_CHAT_ID
+  email_enabled: false
+  watch_drop_pct: 3.0               # intraday alert when a holding falls this % vs prev close
+
+# --- Logging ----------------------------------------------------------------
+logging:
+  level: "INFO"
+  json: false
