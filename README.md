@@ -77,7 +77,7 @@ Register the evening pipeline (19:00 IST, Mon–Fri) with Task Scheduler:
 
 ```powershell
 schtasks /Create /TN "StockAnalyzerDaily" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 19:00 `
-  /TR "D:\GitHub\PersonalGitHub\Claude\Stock-analyzer\.venv\Scripts\analyzer.exe daily"
+  /TR "C:\path\to\Stock-analyzer\.venv\Scripts\analyzer.exe daily"
 ```
 
 The pipeline is idempotent (safe to re-run) and holiday-aware (skips non-trading
